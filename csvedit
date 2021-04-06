@@ -299,13 +299,13 @@ def main(stdscr):
         startrow = getstartrow(startrow,selectrow,height)
         startcol = getstartcol(startcol,selectcol,width)
 
+#--- Main programming code ---
 
 if len(sys.argv) > 1:
     df = pd.read_csv(sys.argv[1],dtype=str)
 else:
     print("Syntax: csvedit <filename>")
     exit(1)
-#df.fillna(0,inplace=True)
 
 TblLayout = {}
 TblLayout['numcols'] = df.shape[1]
