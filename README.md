@@ -1,5 +1,3 @@
-
-
 # Csvedit
 
 A simple CSV editor that runs in a terminal.
