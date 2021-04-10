@@ -167,7 +167,7 @@ def editdata(stdscr,startcol,startrow,selectrow,selectcol,mykey):
             if ( (mykey == curses.KEY_BTAB) | (mykey == curses.KEY_UP) | (mykey == curses.KEY_DOWN) | (mykey == 410) ):
                 docontinue = False
                 returncode = mykey #Enter
-            elif (mykey == curses.KEY_BACKSPACE):
+            elif ( (mykey == curses.KEY_BACKSPACE) | (mykey == 127) ):
                 if (charpos > 0):
                     charpos = charpos - 1
                     editstr = editstr[0:charpos]
@@ -179,6 +179,10 @@ def editdata(stdscr,startcol,startrow,selectrow,selectcol,mykey):
                 docontinue = False
                 returncode = mykey
         else:
+            if ( (mykey == chr(127)) | (mykey == '\b') ):
+                if (charpos > 0):
+                    charpos = charpos - 1
+                    editstr = editstr[0:charpos]
             if (curses.ascii.iscntrl(mykey) == False): #Do not accept control characters
                 editstr = editstr + mykey[0]
                 charpos = charpos + 1
