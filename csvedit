@@ -7,317 +7,344 @@ import os
 import sys
 
 from curses import wrapper
+from curses import ascii
 from math import nan
 
-COLUMN_LENGTH_DEFAULT = 12
-COLUMN_LENGTH_MIN = 4
-COLUMN_LENGTH_MAX = 40
+class PandasViewer:
 
-#--First row of the table--
-#CHRHEADERTOPLEFT = '\u2554' #CHRHEADERTOPMIDDLE = '\u2564' #CHRHEADERTOPLINE = '\u2550' #CHRHEADERTOPRIGHT = '\u2557'
-CHRHEADERTOPLEFT = '\u250c'
-CHRHEADERTOPMIDDLE = '\u252c'
-CHRHEADERTOPLINE = '\u2500'
-CHRHEADERTOPRIGHT = '\u2510'
-#--Header line with column names--
-#CHRHEADERDATALEFT = '\u2551' #CHRHEADERDATARIGHT = '\u2551'
-CHRHEADERDATALEFT = '\u2502'
-CHRHEADERDATAMIDDLE = '\u2502'
-CHRHEADERDATARIGHT = '\u2502'
-#--Line right below the column names--
-#CHRHEADERMIDDLELEFT = '\u255F' #CHRHEADERMIDDLERIGHT = '\u2562'
-CHRHEADERMIDDLELEFT = '\u251C'
-CHRHEADERMIDDLEMIDDLE = '\u253C'
-CHRHEADERMIDDLELINE = '\u2500'
-CHRHEADERMIDDLERIGHT = '\u2524'
-#--Last line of the table--
-#CHRHEADERBOTTOMLEFT = '\u255A' #CHRHEADERBOTTOMMIDDLE = '\u2567' #CHRHEADERBOTTOMLINE = '\u2550' #CHRHEADERBOTTOMRIGHT = '\u255D'
-CHRHEADERBOTTOMLEFT = '\u2514'
-CHRHEADERBOTTOMMIDDLE = '\u2534'
-CHRHEADERBOTTOMLINE = '\u2500'
-CHRHEADERBOTTOMRIGHT = '\u2518'
+    df = {} #Empty dataset that we will be using
+    TblLayout = {} #Data structure to hold the dimensions of the table
 
-def getstartrow(startrow,selectrow,height):
-    if (selectrow<startrow+5):
-        startrow = max(0,selectrow-5)
-    if (selectrow>startrow+height-5-5-1):
-        startrow = min(selectrow-(height-5-5-1),TblLayout['numrows']-(height-5))
-    return(startrow)
+    COLUMN_LENGTH_DEFAULT = 12
+    COLUMN_LENGTH_MIN = 4
+    COLUMN_LENGTH_MAX = 40
 
-def getstartcol(startcol,selectcol,width):
-    if (selectcol<startcol): #Scroll left if needed
-        startcol = selectcol
-    elif (selectcol>startcol):
-        endwidth = 0
-        for i in range(startcol,selectcol+1):
-            endwidth = endwidth + 2 + TblLayout['columnwidths'][i] + 1
-        if (endwidth>width):
-            startcol = getstartcol(startcol+1,selectcol,width)
-    else:
-        startcol = startcol
-    return(startcol)
+    selectrow = 0 #We browse the data starting at the first line
+    selectcol = 0 #We browse the data starting at the first columns
 
-def displayheader(stdscr,startcol,rows,height,width):
-    # https://www.unicode.org/charts/PDF/U2500.pdf
-    if ( (height < 15) | (width < 40) ):
-        if (height>0):
-            stdscr.addstr(0,0,'Enlarge terminal to a minimum of 15x40'[:(width-1)])
-    else:
-        if (startcol == 0):
-            headertop = CHRHEADERTOPLEFT
-            headermiddle = CHRHEADERMIDDLELEFT
-            headerbottom = CHRHEADERBOTTOMLEFT
-            headerdata = CHRHEADERDATALEFT
+    height = 0 #Height of the screen
+    width = 0 #Width of the screen
+
+    #--First row of the table--
+    CHRHEADERTOPLEFT = '\u250c'
+    CHRHEADERTOPMIDDLE = '\u252c'
+    CHRHEADERTOPLINE = '\u2500'
+    CHRHEADERTOPRIGHT = '\u2510'
+
+    #--Header line with column names--
+    CHRHEADERDATALEFT = '\u2502'
+    CHRHEADERDATAMIDDLE = '\u2502'
+    CHRHEADERDATARIGHT = '\u2502'
+
+    #--Line right below the column names--
+    CHRHEADERMIDDLELEFT = '\u251C'
+    CHRHEADERMIDDLEMIDDLE = '\u253C'
+    CHRHEADERMIDDLELINE = '\u2500'
+    CHRHEADERMIDDLERIGHT = '\u2524'
+
+    #--Last line of the table--
+    CHRHEADERBOTTOMLEFT = '\u2514'
+    CHRHEADERBOTTOMMIDDLE = '\u2534'
+    CHRHEADERBOTTOMLINE = '\u2500'
+    CHRHEADERBOTTOMRIGHT = '\u2518'
+
+    #Function to read the layout of the table (number and size of rows and columns)
+    def analyseTblLayout(self):
+        self.TblLayout = {}
+        self.TblLayout['numcols'] = self.df.shape[1]
+        self.TblLayout['numrows'] = self.df.shape[0]
+        self.TblLayout['columnnames'] = self.df.columns
+        self.TblLayout['columnwidths'] = [self.COLUMN_LENGTH_DEFAULT]*self.TblLayout['numcols']
+        counter = 0
+        for column in self.df:
+            self.TblLayout['columnwidths'][counter] = max(min(max(self.df[column].map(str).map(len).max(),len(column)),self.COLUMN_LENGTH_MAX),self.COLUMN_LENGTH_MIN)
+            counter = counter + 1
+
+    def calcStartRow(self):
+        if (self.selectrow<self.startrow+5):
+            self.startrow = max(0,self.selectrow-5)
+        if (self.selectrow>self.startrow+self.height-5-5-1):
+            self.startrow = min(self.selectrow-(self.height-5-5-1),self.TblLayout['numrows']-(self.height-5))
+
+    def calcStartCol(self):
+        if (self.selectcol<self.startcol): #Scroll left if needed
+            self.startcol = self.selectcol
+        elif (self.selectcol>self.startcol):
+            endwidth = 0
+            for i in range(self.startcol,self.selectcol+1):
+                endwidth = endwidth + 2 + self.TblLayout['columnwidths'][i] + 1
+            if (endwidth>self.width):
+                self.startcol = self.startcol + 1
+                self.calcStartCol()
+
+    def displayheader(self):
+        rows = self.TblLayout['numrows']
+        if ( (self.height < 15) | (self.width < 40) ):
+            if (self.height>0):
+                self.stdscr.addstr(0,0,'Enlarge terminal to a minimum of 15x40'[:(self.width-1)])
         else:
-            headertop = CHRHEADERTOPMIDDLE
-            headermiddle = CHRHEADERMIDDLEMIDDLE
-            headerbottom = CHRHEADERBOTTOMMIDDLE
-            headerdata = CHRHEADERDATAMIDDLE
-        for i in range(startcol,TblLayout['numcols']):
-            if (len(headertop)<width):
-                headertop = headertop + CHRHEADERTOPLINE*(TblLayout['columnwidths'][i]+2)
-                headermiddle = headermiddle + CHRHEADERMIDDLELINE*(TblLayout['columnwidths'][i]+2)
-                headerbottom = headerbottom + CHRHEADERBOTTOMLINE*(TblLayout['columnwidths'][i]+2)
-                headerdata = headerdata + ' '+TblLayout['columnnames'][i][:TblLayout['columnwidths'][i]].ljust(TblLayout['columnwidths'][i])+' '
-                if (i<TblLayout['numcols']-1):
-                    headertop = headertop + CHRHEADERTOPMIDDLE
-                    headermiddle = headermiddle + CHRHEADERMIDDLEMIDDLE
-                    headerbottom = headerbottom + CHRHEADERBOTTOMMIDDLE
-                    headerdata = headerdata + CHRHEADERDATAMIDDLE
-                else:
-                    headertop = headertop + CHRHEADERTOPRIGHT
-                    headermiddle = headermiddle + CHRHEADERMIDDLERIGHT
-                    headerbottom = headerbottom + CHRHEADERBOTTOMRIGHT
-                    headerdata = headerdata + CHRHEADERDATARIGHT
+            if (self.startcol == 0):
+                headertop = self.CHRHEADERTOPLEFT
+                headermiddle = self.CHRHEADERMIDDLELEFT
+                headerbottom = self.CHRHEADERBOTTOMLEFT
+                headerdata = self.CHRHEADERDATALEFT
             else:
-                break; #Break out of the for loop
-
-        stdscr.addstr(0, 0, headertop[:width].ljust(width))
-        stdscr.addstr(1, 0, headerdata[:width].ljust(width))
-        stdscr.addstr(2, 0, headermiddle[:width].ljust(width))
-        lastrow = min(2+rows+1,height-2)
-        stdscr.addstr(lastrow, 0, headerbottom[:width].ljust(width))
-
-def displaydata(stdscr,startcol,startrow,maxrows,selectrow,selectcol,height,width):
-    if ( (height < 15) | (width < 40) ):
-        return(0)
-    tic = time.perf_counter()
-    stoprow = min(maxrows-1,TblLayout['numrows']-1)
-    displayrow = 3
-    for j in range(startrow, stoprow+1):
-        displaycol = 0
-        if (width>displaycol):
-            if (startcol == 0):
-                stdscr.addstr(displayrow, displaycol, CHRHEADERDATALEFT)
-            else:
-                stdscr.addstr(displayrow, displaycol, CHRHEADERDATAMIDDLE)
-            displaycol = displaycol + 1 #Also foresee an extra space at the left of the first data field
-        if (width>displaycol):
-            stdscr.addstr(displayrow, displaycol, ' ')
-            displaycol = displaycol + 1 #Also foresee an extra space at the left of the first data field
-        for i in range(startcol,TblLayout['numcols']):
-            if (width>displaycol):
-                cellwidth = TblLayout['columnwidths'][i]
-                displaywidth = min(cellwidth,width-displaycol-1)
-                datastr = str(df.iloc[j,i])[:displaywidth].ljust(displaywidth)
-                if (j==selectrow):
-                    highlight = curses.A_BOLD | curses.A_REVERSE * (i==selectcol)
+                headertop = self.CHRHEADERTOPMIDDLE
+                headermiddle = self.CHRHEADERMIDDLEMIDDLE
+                headerbottom = self.CHRHEADERBOTTOMMIDDLE
+                headerdata = self.CHRHEADERDATAMIDDLE
+            for i in range(self.startcol,self.TblLayout['numcols']):
+                if (len(headertop)<self.width):
+                    headertop = headertop + self.CHRHEADERTOPLINE*(self.TblLayout['columnwidths'][i]+2)
+                    headermiddle = headermiddle + self.CHRHEADERMIDDLELINE*(self.TblLayout['columnwidths'][i]+2)
+                    headerbottom = headerbottom + self.CHRHEADERBOTTOMLINE*(self.TblLayout['columnwidths'][i]+2)
+                    headerdata = headerdata + ' '+self.TblLayout['columnnames'][i][:self.TblLayout['columnwidths'][i]].ljust(self.TblLayout['columnwidths'][i])+' '
+                    if (i<self.TblLayout['numcols']-1):
+                        headertop = headertop + self.CHRHEADERTOPMIDDLE
+                        headermiddle = headermiddle + self.CHRHEADERMIDDLEMIDDLE
+                        headerbottom = headerbottom + self.CHRHEADERBOTTOMMIDDLE
+                        headerdata = headerdata + self.CHRHEADERDATAMIDDLE
+                    else:
+                        headertop = headertop + self.CHRHEADERTOPRIGHT
+                        headermiddle = headermiddle + self.CHRHEADERMIDDLERIGHT
+                        headerbottom = headerbottom + self.CHRHEADERBOTTOMRIGHT
+                        headerdata = headerdata + self.CHRHEADERDATARIGHT
                 else:
-                    highlight = 0
-                stdscr.addstr(displayrow, displaycol, datastr, highlight)
-                displaycol = displaycol + displaywidth #Also foresee an extra space at the right of the data field
-            if (width>displaycol):
-                stdscr.addstr(displayrow, displaycol, ' ')
+                    break; #Break out of the for loop
+
+            self.stdscr.addstr(0, 0, headertop[:self.width].ljust(self.width))
+            self.stdscr.addstr(1, 0, headerdata[:self.width].ljust(self.width))
+            self.stdscr.addstr(2, 0, headermiddle[:self.width].ljust(self.width))
+            lastrow = min(2+rows+1,self.height-2)
+            self.stdscr.addstr(lastrow, 0, headerbottom[:self.width].ljust(self.width))
+
+    def displaydata(self):
+        maxrows = self.startrow + self.height - 5
+        if ( (self.height < 15) | (self.width < 40) ):
+            return(0)
+        tic = time.perf_counter()
+        stoprow = min(maxrows-1,self.TblLayout['numrows']-1)
+        displayrow = 3
+        for j in range(self.startrow, stoprow+1):
+            displaycol = 0
+            if (self.width>displaycol):
+                if (self.startcol == 0):
+                    self.stdscr.addstr(displayrow, displaycol, self.CHRHEADERDATALEFT)
+                else:
+                    self.stdscr.addstr(displayrow, displaycol, self.CHRHEADERDATAMIDDLE)
                 displaycol = displaycol + 1 #Also foresee an extra space at the left of the first data field
-            if (width>displaycol):
-                if (i<TblLayout['numcols']-1):
-                    stdscr.addstr(displayrow, displaycol, CHRHEADERDATAMIDDLE)
-                else: #end of the line
-                    stdscr.addstr(displayrow, displaycol, CHRHEADERDATARIGHT.ljust(width-displaycol-1))
-                displaycol = displaycol + 1 #Also foresee an extra space at the left of the separator
-            if (width>displaycol):
-                stdscr.addstr(displayrow, displaycol, ' ')
+            if (self.width>displaycol):
+                self.stdscr.addstr(displayrow, displaycol, ' ')
                 displaycol = displaycol + 1 #Also foresee an extra space at the left of the first data field
-        displayrow = displayrow + 1
-    toc=time.perf_counter()
-    statusline = 'Cell {}:{} ({})'.format(selectrow+1,selectcol+1,TblLayout['numrows'])
-    statusline = statusline + ' | Ctrl-(W/X): Insert (Above/Below) | Ctrl-D: Delete record | F4: Save | Ctrl-E: Exit (no save)'
-    #statusline = statusline + f"  Updated the screen in {toc - tic:0.8f} seconds  "
-    #stdscr.addstr(height-1, 0, '> Row {} (0-{})'.format(selectrow,TblLayout['numrows']-1).ljust(30))
-    stdscr.addstr(height-1,0,statusline[:(width-1)].ljust(width-1))
+            for i in range(self.startcol,self.TblLayout['numcols']):
+                if (self.width>displaycol):
+                    cellwidth = self.TblLayout['columnwidths'][i]
+                    displaywidth = min(cellwidth,self.width-displaycol-1)
+                    datastr = str(self.df.iloc[j,i])[:displaywidth].ljust(displaywidth)
+                    if (j==self.selectrow):
+                        highlight = curses.A_BOLD | curses.A_REVERSE * (i==self.selectcol)
+                    else:
+                        highlight = 0
+                    self.stdscr.addstr(displayrow, displaycol, datastr, highlight)
+                    displaycol = displaycol + displaywidth #Also foresee an extra space at the right of the data field
+                if (self.width>displaycol):
+                    self.stdscr.addstr(displayrow, displaycol, ' ')
+                    displaycol = displaycol + 1 #Also foresee an extra space at the left of the first data field
+                if (self.width>displaycol):
+                    if (i<self.TblLayout['numcols']-1):
+                        self.stdscr.addstr(displayrow, displaycol, self.CHRHEADERDATAMIDDLE)
+                    else: #end of the line
+                        self.stdscr.addstr(displayrow, displaycol, self.CHRHEADERDATARIGHT.ljust(self.width-displaycol-1))
+                    displaycol = displaycol + 1 #Also foresee an extra space at the left of the separator
+                if (self.width>displaycol):
+                    self.stdscr.addstr(displayrow, displaycol, ' ')
+                    displaycol = displaycol + 1 #Also foresee an extra space at the left of the first data field
+            displayrow = displayrow + 1
+        toc=time.perf_counter()
+        statusline = 'Cell {}:{} ({})'.format(self.selectrow+1,self.selectcol+1,self.TblLayout['numrows'])
+        statusline = statusline + ' | Ctrl-(W/X): Insert (Above/Below) | Ctrl-D: Delete record | F4: Save | Ctrl-E: Exit (no save)'
+        #statusline = statusline + f"  Updated the screen in {toc - tic:0.8f} seconds  "
+        #self.stdscr.addstr(self.height-1, 0, '> Row {} (0-{})'.format(self.selectrow,TblLayout['numrows']-1).ljust(30))
+        self.stdscr.addstr(self.height-1,0,statusline[:(self.width-1)].ljust(self.width-1))
 
-def editdata(stdscr,startcol,startrow,selectrow,selectcol,mykey):
-    #editstr = str(df.loc[selectrow][selectcol])
-    curses.curs_set(1)
-    returncode = ''
-    editstr = "" + mykey
-    charpos = 0 + len(mykey)
-    docontinue = True
-    displaycol = 2
-    for i in range(startcol,selectcol):
-        displaycol = displaycol + TblLayout['columnwidths'][i]+3
-    cellwidth = TblLayout['columnwidths'][selectcol]
-    stdscr.addstr(3+selectrow-startrow,displaycol,editstr.ljust(cellwidth),(curses.A_REVERSE | curses.A_BOLD))
-    stdscr.move(3+selectrow-startrow,displaycol+charpos)
-    while (docontinue):
-        mykey = stdscr.get_wch()
-        if (isinstance(mykey,int)):
-            if ( (mykey == curses.KEY_BTAB) | (mykey == curses.KEY_UP) | (mykey == curses.KEY_DOWN) | (mykey == 410) ):
-                docontinue = False
-                returncode = mykey #Enter
-            elif ( (mykey == curses.KEY_BACKSPACE) | (mykey == 127) ):
-                if (charpos > 0):
-                    charpos = charpos - 1
-                    editstr = editstr[0:charpos]
-        elif ( (mykey == '\n') | (mykey == '\t') ):
-                docontinue = False
-                returncode = mykey
-        elif ( mykey == chr(27) ):
-                editstr = str(df.iloc[selectrow,selectcol]) #Put original text back
-                docontinue = False
-                returncode = mykey
-        else:
-            if ( (mykey == chr(127)) | (mykey == '\b') ):
-                if (charpos > 0):
-                    charpos = charpos - 1
-                    editstr = editstr[0:charpos]
-            if (curses.ascii.iscntrl(mykey) == False): #Do not accept control characters
-                editstr = editstr + mykey[0]
-                charpos = charpos + 1
-        if (charpos <= cellwidth):
-            showstr = editstr[:cellwidth].ljust(cellwidth)
-            showpos = charpos
-        else:
-            showstr = editstr[charpos-cellwidth:charpos]
-            showpos = cellwidth
-        stdscr.addstr(3+selectrow-startrow,displaycol,showstr,(curses.A_REVERSE | curses.A_BOLD))
-        stdscr.move(3+selectrow-startrow,displaycol+showpos)
-    df.iloc[selectrow,selectcol] = editstr
-    curses.curs_set(0)
-    return(returncode)
+    def editdata(self,mykey):
+        #editstr = str(self.df.loc[self.selectrow][self.selectcol])
+        curses.curs_set(1)
+        returncode = ''
+        editstr = "" + mykey
+        charpos = 0 + len(mykey)
+        docontinue = True
+        displaycol = 2
+        for i in range(self.startcol,self.selectcol):
+            displaycol = displaycol + self.TblLayout['columnwidths'][i]+3
+        cellwidth = self.TblLayout['columnwidths'][self.selectcol]
+        self.stdscr.addstr(3+self.selectrow-self.startrow,displaycol,editstr.ljust(cellwidth),(curses.A_REVERSE | curses.A_BOLD))
+        self.stdscr.move(3+self.selectrow-self.startrow,displaycol+charpos)
+        while (docontinue):
+            mykey = self.stdscr.get_wch()
+            if (isinstance(mykey,int)):
+                if ( (mykey == curses.KEY_BTAB) | (mykey == curses.KEY_UP) | (mykey == curses.KEY_DOWN) | (mykey == 410) ):
+                    docontinue = False
+                    returncode = mykey #Enter
+                elif ( (mykey == curses.KEY_BACKSPACE) | (mykey == 127) ):
+                    if (charpos > 0):
+                        charpos = charpos - 1
+                        editstr = editstr[0:charpos]
+            elif ( (mykey == '\n') | (mykey == '\t') ):
+                    docontinue = False
+                    returncode = mykey
+            elif ( mykey == chr(27) ):
+                    editstr = str(self.df.iloc[self.selectrow,self.selectcol]) #Put original text back
+                    docontinue = False
+                    returncode = mykey
+            else:
+                if ( (mykey == chr(127)) | (mykey == '\b') ):
+                    if (charpos > 0):
+                        charpos = charpos - 1
+                        editstr = editstr[0:charpos]
+                if (curses.ascii.iscntrl(mykey) == False): #Do not accept control characters
+                    editstr = editstr + mykey[0]
+                    charpos = charpos + 1
+            if (charpos <= cellwidth):
+                showstr = editstr[:cellwidth].ljust(cellwidth)
+                showpos = charpos
+            else:
+                showstr = editstr[charpos-cellwidth:charpos]
+                showpos = cellwidth
+            self.stdscr.addstr(3+self.selectrow-self.startrow,displaycol,showstr,(curses.A_REVERSE | curses.A_BOLD))
+            self.stdscr.move(3+self.selectrow-self.startrow,displaycol+showpos)
+        self.df.iloc[self.selectrow,self.selectcol] = editstr
+        curses.curs_set(0)
+        return(returncode)
 
-def main(stdscr):
-    global df
-
-    stdscr.clear()
-    curses.curs_set(0)
-    height,width = stdscr.getmaxyx()
-
-    startrow = 0
-    startcol = 0
-    selectrow = 0
-    selectcol = 0
-
-    while(1):
-        displayheader(stdscr,startcol,TblLayout['numrows'],height,width)
-        displaydata(stdscr,startcol,startrow,startrow+height-5,selectrow,selectcol,height,width)
-        mykey = stdscr.get_wch()
+    def handleNavigationKey(self,mykey):
         returnkey = 0
         if (isinstance(mykey,int)):
             if (mykey == curses.KEY_NPAGE):
-                selectrow = max(0,min(selectrow + (height-5-2),TblLayout['numrows']-1))
+                self.selectrow = max(0,min(self.selectrow + (self.height-5-2),self.TblLayout['numrows']-1))
             elif (mykey == curses.KEY_PPAGE):
-                selectrow = max(0,selectrow - (height-5-2))
+                self.selectrow = max(0,self.selectrow - (self.height-5-2))
             elif (mykey == curses.KEY_DOWN):
-                selectrow = max(0,min(selectrow + 1,TblLayout['numrows']-1))
+                self.selectrow = max(0,min(self.selectrow + 1,self.TblLayout['numrows']-1))
             elif (mykey == curses.KEY_UP):
-                selectrow = max(0,selectrow - 1)
+                self.selectrow = max(0,self.selectrow - 1)
             elif (mykey == curses.KEY_BTAB):
                 returnkey = curses.KEY_BTAB
             elif (mykey == curses.KEY_LEFT):
-                selectcol = max(0,selectcol-1)
+                self.selectcol = max(0,self.selectcol-1)
             elif (mykey == curses.KEY_RIGHT):
-                selectcol = min(selectcol+1,TblLayout['numcols']-1)
+                self.selectcol = min(self.selectcol+1,self.TblLayout['numcols']-1)
             elif (mykey == curses.KEY_F2):
-                if (TblLayout['numrows']>0):
-                    returnkey = editdata(stdscr,startcol,startrow,selectrow,selectcol,'')
+                if (self.TblLayout['numrows']>0):
+                    returnkey = editdata('')
             elif (mykey == curses.KEY_F4):
-                df.to_csv(sys.argv[1],index=False)
-                stdscr.addstr(height-1,0,"File saved as \"{}\", press a key to continue".format(sys.argv[1]).ljust(width-1))
-                stdscr.getch()
+                self.df.to_csv(sys.argv[1],index=False)
+                self.stdscr.addstr(self.height-1,0,"File saved as \"{}\", press a key to continue".format(sys.argv[1]).ljust(self.width-1))
+                self.stdscr.getch()
             elif (mykey == 410): #resize
                 returnkey = mykey
             else:
-                stdscr.addstr(height-1, 30, 'You pressed #{}#          '.format(mykey))
-        #elif (mykey == ':'):
-        #    df.to_csv('out.csv',index=False)
-        #    curses.curs_set(1)
-        #    exit(0)
+                self.stdscr.addstr(self.height-1, 30, 'You pressed #{}#          '.format(mykey))
         elif (mykey == '\t'):
             returnkey = '\t'
         elif (mykey == '\n'):
             returnkey = '\n';
         elif (len(mykey)==1):
             if (ord(mykey)>31): #We will not match stuff like an escape character (27)
-                if (TblLayout['numrows']>0):
-                    returnkey = editdata(stdscr,startcol,startrow,selectrow,selectcol,mykey)
+                if (self.TblLayout['numrows']>0):
+                    returnkey = self.editdata(mykey)
             elif (ord(mykey)==23): #Ctrl-W
-                df = pd.concat([df.head(selectrow), pd.DataFrame([[nan] * df.shape[1]], columns=df.columns), df.tail(TblLayout['numrows']-selectrow)], ignore_index=True)
-                df.astype(str)
-                TblLayout['numrows'] = df.shape[0]
+                self.df = pd.concat([self.df.head(self.selectrow), pd.DataFrame([[nan] * self.df.shape[1]], columns=self.df.columns), self.df.tail(self.TblLayout['numrows']-self.selectrow)], ignore_index=True)
+                self.df.astype(str)
+                self.TblLayout['numrows'] = self.df.shape[0]
                 returnkey = 410 #Force resize
             elif (ord(mykey)==5): #Ctrl-E
                 curses.curs_set(1)
                 exit(0)
             elif (ord(mykey)==24): #Ctrl-X
-                df = pd.concat([df.head(selectrow+1), pd.DataFrame([[nan] * df.shape[1]], columns=df.columns), df.tail(TblLayout['numrows']-selectrow-1)], ignore_index=True)
-                df.astype(str)
-                TblLayout['numrows'] = df.shape[0]
-                selectrow = max(0,min(selectrow + 1,TblLayout['numrows']-1))
+                self.df = pd.concat([self.df.head(self.selectrow+1), pd.DataFrame([[nan] * self.df.shape[1]], columns=self.df.columns), self.df.tail(self.TblLayout['numrows']-self.selectrow-1)], ignore_index=True)
+                self.df.astype(str)
+                self.TblLayout['numrows'] = self.df.shape[0]
+                self.selectrow = max(0,min(self.selectrow + 1,self.TblLayout['numrows']-1))
                 returnkey = 410 #Force resize
             elif (ord(mykey)==4): #Ctrl-D
-                if (TblLayout['numrows']>0):
-                    df = df.drop(df.index[[selectrow]])
-                    TblLayout['numrows'] = df.shape[0]
-                    selectrow = max(0,selectrow - 1)
+                if (self.TblLayout['numrows']>0):
+                    self.df = self.df.drop(self.df.index[[self.selectrow]])
+                    self.TblLayout['numrows'] = self.df.shape[0]
+                    self.selectrow = max(0,self.selectrow - 1)
                     returnkey = 410 #Force resize
-                selectrow = max(0,min(selectrow + 1,TblLayout['numrows']-1))
+                self.selectrow = max(0,min(self.selectrow + 1,self.TblLayout['numrows']-1))
             #else:
-            #    stdscr.addstr(height-1, 30, 'You pressed #{}#          '.format(ord(mykey)))
+            #    self.stdscr.addstr(self.height-1, 30, 'You pressed #{}#          '.format(ord(mykey)))
         #else:
-        #    stdscr.addstr(height-1, 30, 'You pressed #{}#          '.format(mykey))
+        #    self.stdscr.addstr(self.height-1, 30, 'You pressed #{}#          '.format(mykey))
         #---------------------------------------------------------
+
         if (isinstance(returnkey,int)):
             if ( (returnkey == curses.KEY_DOWN) ):
-                selectrow = min(selectrow + 1,TblLayout['numrows']-1)
+                self.selectrow = min(self.selectrow + 1,self.TblLayout['numrows']-1)
             elif ( (returnkey == curses.KEY_UP) ):
-                selectrow = max(0,selectrow - 1)
+                self.selectrow = max(0,self.selectrow - 1)
             elif (returnkey == curses.KEY_BTAB):
-                if ( (selectcol == 0) & (selectrow > 0) ):
-                    selectcol = TblLayout['numcols']-1
-                    selectrow = selectrow - 1
+                if ( (self.selectcol == 0) & (self.selectrow > 0) ):
+                    self.selectcol = self.TblLayout['numcols']-1
+                    self.selectrow = self.selectrow - 1
                 else:
-                    selectcol = max(0,selectcol-1)
+                    self.selectcol = max(0,self.selectcol-1)
             elif (returnkey == 410): #resize
-                height,width = stdscr.getmaxyx()
-                stdscr.clear()
+                self.height,self.width = self.stdscr.getmaxyx()
+                self.stdscr.clear()
         elif ( (returnkey == '\t') | (returnkey == '\n') ):
-            if ( (selectcol == TblLayout['numcols']-1) & (selectrow < TblLayout['numrows']-1) ):
-                selectcol = 0
-                selectrow = selectrow + 1
+            if ( (self.selectcol == self.TblLayout['numcols']-1) & (self.selectrow < self.TblLayout['numrows']-1) ):
+                self.selectcol = 0
+                self.selectrow = self.selectrow + 1
             else:
-                selectcol = min(selectcol+1,TblLayout['numcols']-1)
-        #-----------------------------------------------------------
-        startrow = getstartrow(startrow,selectrow,height)
-        startcol = getstartcol(startcol,selectcol,width)
+                self.selectcol = min(self.selectcol+1,self.TblLayout['numcols']-1)
+
+    def navigate(self):
+        mykey = self.stdscr.get_wch()
+        self.handleNavigationKey(mykey)
+        self.calcStartRow()
+        self.calcStartCol()
+
+    def init(self):
+        self.analyseTblLayout()
+
+        self.selectrow = 0 #Currently selected row number
+        self.selectcol = 0 #Currently selected column number
+
+        self.startrow = 0 #id of the first row shown on the screen
+        self.startcol = 0 #id of the first column shown on the screen
+
+
+        self.height,self.width = self.stdscr.getmaxyx() #Height and Witdh of the screen
+
+        self.stdscr.clear()
+        curses.curs_set(0)
+
+    def show(self,stdscr,mydf):
+        self.df = mydf
+        self.stdscr = stdscr
+        self.init() #Initialize a set of variables to default and analyze the Pandas datastructure
+
+        while(1):
+            self.displayheader()
+            self.displaydata()
+            self.navigate() #Wait for a keystroke and take action
+
+#--- Reading the CSV file and starting the Pandas Curses viewer ---
+
+def main(stdscr):
+    if len(sys.argv) > 1:
+        df = pd.read_csv(sys.argv[1],dtype=str)
+    else:
+        print("Syntax: csvedit <filename>")
+        sys.exit(1)
+
+    myViewer = PandasViewer()
+    myViewer.show(stdscr,df)
 
 #--- Main programming code ---
-
-if len(sys.argv) > 1:
-    df = pd.read_csv(sys.argv[1],dtype=str)
-else:
-    print("Syntax: csvedit <filename>")
-    sys.exit(1)
-
-TblLayout = {}
-TblLayout['numcols'] = df.shape[1]
-TblLayout['numrows'] = df.shape[0]
-TblLayout['columnnames'] = df.columns
-TblLayout['columnwidths'] = [COLUMN_LENGTH_DEFAULT]*TblLayout['numcols']
-counter = 0
-for column in df:
-    TblLayout['columnwidths'][counter] = max(min(max(df[column].map(str).map(len).max(),len(column)),COLUMN_LENGTH_MAX),COLUMN_LENGTH_MIN)
-    counter = counter + 1
 
 os.environ.setdefault('ESCDELAY', '25')
 wrapper(main)
