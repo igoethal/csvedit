@@ -4,12 +4,10 @@ import curses
 import pandas as pd
 import time
 import os
-import csv
 import sys
 
 from curses import wrapper
 from math import nan
-from curses import ascii
 
 COLUMN_LENGTH_DEFAULT = 12
 COLUMN_LENGTH_MIN = 4
@@ -309,7 +307,7 @@ if len(sys.argv) > 1:
     df = pd.read_csv(sys.argv[1],dtype=str)
 else:
     print("Syntax: csvedit <filename>")
-    exit(1)
+    sys.exit(1)
 
 TblLayout = {}
 TblLayout['numcols'] = df.shape[1]
